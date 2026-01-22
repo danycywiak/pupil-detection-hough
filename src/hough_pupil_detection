@@ -1,0 +1,157 @@
+"""
+Pupil detection using the Hough Circle Transform (classical Computer Vision).
+
+What this script does:
+1) Opens a video file.
+2) Samples frames (every N frames).
+3) Runs preprocessing + HoughCircles to detect the pupil as a circle.
+4) Draws the detected circle and center on each processed frame.
+5) Saves an output video with the overlay.
+
+Notes:
+- This is a classical, interpretable approach (no deep learning).
+- HoughCircles is sensitive to illumination and blur parameters,
+  so the thresholds/radius range should be tuned per camera setup.
+"""
+
+import argparse
+import os
+import cv2
+import numpy as np
+
+
+def detect_pupil_hough(frame_bgr,
+                      blur_ksize=9,
+                      dp=1.0,
+                      min_dist=90,
+                      param1=40,
+                      param2=30,
+                      min_radius=17,
+                      max_radius=60):
+    """
+    Detect pupil using Hough Circle Transform.
+    Returns (x, y, r) as integers, or None if no circle is detected.
+    """
+
+    # Convert to grayscale (HoughCircles works on 1-channel images)
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+
+    # Median blur helps reduce salt-and-pepper noise and stabilize edges
+    gray_blur = cv2.medianBlur(gray, blur_ksize)
+
+    circles = cv2.HoughCircles(
+        gray_blur,
+        cv2.HOUGH_GRADIENT,
+        dp=dp,
+        minDist=min_dist,
+        param1=param1,
+        param2=param2,
+        minRadius=min_radius,
+        maxRadius=max_radius
+    )
+
+    if circles is None:
+        return None
+
+    circles = np.uint16(np.around(circles))[0]  # shape: (num_circles, 3)
+
+    # If multiple circles are detected, select one.
+    # Simple rule: choose the circle with the largest radius.
+    # (Alternative: choose the darkest circle center, etc.)
+    x, y, r = max(circles, key=lambda c: c[2])
+    return int(x), int(y), int(r)
+
+
+def draw_detection(frame_bgr, det):
+    """Draws the pupil circle (green) and center (red)."""
+    out = frame_bgr.copy()
+    if det is None:
+        return out
+
+    x, y, r = det
+    cv2.circle(out, (x, y), r, (0, 255, 0), 2)  # circle outline
+    cv2.circle(out, (x, y), 2, (0, 0, 255), 3)  # center point
+    return out
+
+
+def process_video(input_path, output_path, step=1, max_frames=0, fps_out=None):
+    """
+    Process input video and save output video with pupil detection overlay.
+
+    Parameters:
+    - step: analyze every 'step' frames (1 = every frame, 2 = every other frame, etc.)
+    - max_frames: if > 0, stops after processing that many frames
+    - fps_out: output fps (if None, uses input fps)
+    """
+
+    cap = cv2.VideoCapture(input_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open video: {input_path}")
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps_in = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    fps = fps_out if fps_out is not None else fps_in
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    processed = 0
+    analyzed = 0
+
+    # We loop frame by frame, but only analyze frames that match the step condition.
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        if frame_idx % step == 0:
+            det = detect_pupil_hough(frame)
+            frame_vis = draw_detection(frame, det)
+            analyzed += 1
+        else:
+            frame_vis = frame
+
+        writer.write(frame_vis)
+        processed += 1
+        frame_idx += 1
+
+        if max_frames > 0 and processed >= max_frames:
+            break
+
+    cap.release()
+    writer.release()
+
+    print(f"Input frames: {total_frames}")
+    print(f"Frames written: {processed}")
+    print(f"Frames analyzed (step={step}): {analyzed}")
+    print(f"Output saved to: {output_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", required=True, help="Path to input video (e.g., data/Chris_pupila2.mp4)")
+    parser.add_argument("--output", default="results/pupil_detected.mp4", help="Output video path")
+    parser.add_argument("--step", type=int, default=1, help="Analyze every N frames (default=1)")
+    parser.add_argument("--max_frames", type=int, default=0, help="Process only first N frames (0 = all)")
+    parser.add_argument("--fps", type=float, default=0.0, help="Output fps (0 = use input fps)")
+    args = parser.parse_args()
+
+    fps_out = None if args.fps <= 0 else args.fps
+
+    process_video(
+        input_path=args.input,
+        output_path=args.output,
+        step=max(1, args.step),
+        max_frames=max(0, args.max_frames),
+        fps_out=fps_out
+    )
+
+
+if __name__ == "__main__":
+    main()
