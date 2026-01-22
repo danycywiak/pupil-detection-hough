@@ -18,9 +18,9 @@ import cv2
 import numpy as np
 import subprocess
 
-# ==========================================================
-# Open video and extract frames
-# ==========================================================
+
+########## Open video and extract frames
+
 
 # Path to the input video
 video_path = "Chris_pupila2.mp4"
@@ -62,9 +62,8 @@ print(f"The number of frames that will be analyzed is {len(frames_to_analize)}")
 
 
 
-# ==========================================================
-# Pupil detection using Hough Circles
-# ==========================================================
+########### Pupil detection using Hough Circles
+
 
 # This list will store the detected pupil radius for each frame
 circles_radius_data_array = []
@@ -118,16 +117,14 @@ for i in range(len(frames_to_analize)):
         # If no pupil is detected in this frame
         print(f"No circle detected in frame {frame_num_tag[i]}")
 
-    # ===============================
+    
     # Save frame with pupil detection
-    # ===============================
+  
     cv2.imwrite(f"frame_pupil_detected_{frame_num_tag[i]}.png", img)
 
 
 
-# ===============================
-# Final summary of detection
-# ===============================
+########### Final summary of detection
 
 print(
     f"\nThe number of frames with detected pupil is "
@@ -138,10 +135,8 @@ print(circles_radius_data_array)
 print("Program finished successfully")
 
 
+# ----Create a video using the processed frames
 
-# ==========================================================
-# Create a video using the processed frames
-# ==========================================================
 
 fps = 15
 output_video = "Prueba_Chris_pupil_detected.mp4"
@@ -167,9 +162,10 @@ print("Video:", output_video, "created successfully")
 
 
 
-# ==========================================================
-# Convert the video to high-quality H.264 using ffmpeg
-# ==========================================================
+
+
+########## Convert the video to high-quality H.264 using ffmpeg
+
 
 output_h264 = "Chris_pupil_detected_h264_q12.mp4"
 
