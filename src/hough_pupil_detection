@@ -9,149 +9,181 @@ What this script does:
 5) Saves an output video with the overlay.
 
 Notes:
-- This is a classical, interpretable approach (no deep learning).
+- This is a classical, interpretable approach.
 - HoughCircles is sensitive to illumination and blur parameters,
   so the thresholds/radius range should be tuned per camera setup.
 """
 
-import argparse
-import os
 import cv2
 import numpy as np
+import subprocess
+
+# ==========================================================
+# Open video and extract frames
+# ==========================================================
+
+# Path to the input video
+video_path = "Chris_pupila2.mp4"
+
+# Open the video using OpenCV
+cap = cv2.VideoCapture(video_path)
+
+# Get total number of frames in the video
+total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+print(f"The maximum number of frames in the video is: {total_frames}")
+
+# Lists to store the frames and their corresponding frame numbers
+frames_to_analize = []
+frame_num_tag = []
+
+# We can skip frames if needed (for example, analyze every 2nd or 5th frame)
+# Here I set it to 1, so we analyze all frames
+frames_jumps = 1
+
+# Loop over the video frames
+for frame in range(0, total_frames, frames_jumps):
+    # Move the video pointer to the desired frame
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame)
+    
+    # Read the frame
+    ret, actual_frame = cap.read()
+
+    # Store a copy of the frame and its frame index
+    frames_to_analize.append(actual_frame.copy())
+    frame_num_tag.append(frame)
+
+    # Optionally save the original frame without any drawings
+    # cv2.imwrite(f"frame_original_{frame}.png", actual_frame)
+
+# Release the video object
+cap.release()
+
+print(f"The number of frames that will be analyzed is {len(frames_to_analize)}")
 
 
-def detect_pupil_hough(frame_bgr,
-                      blur_ksize=9,
-                      dp=1.0,
-                      min_dist=90,
-                      param1=40,
-                      param2=30,
-                      min_radius=17,
-                      max_radius=60):
-    """
-    Detect pupil using Hough Circle Transform.
-    Returns (x, y, r) as integers, or None if no circle is detected.
-    """
 
-    # Convert to grayscale (HoughCircles works on 1-channel images)
-    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+# ==========================================================
+# Pupil detection using Hough Circles
+# ==========================================================
 
-    # Median blur helps reduce salt-and-pepper noise and stabilize edges
-    gray_blur = cv2.medianBlur(gray, blur_ksize)
+# This list will store the detected pupil radius for each frame
+circles_radius_data_array = []
 
+# Loop over all extracted frames
+for i in range(len(frames_to_analize)):
+
+    # Copy the frame so we don’t modify the original one
+    img = frames_to_analize[i].copy()
+    
+    # Convert the image to grayscale (required for HoughCircles)
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # Apply median blur to reduce noise and improve detection
+    img_blur = cv2.medianBlur(img_gray, 9)
+
+    # Detect circles using Hough Circle Transform
     circles = cv2.HoughCircles(
-        gray_blur,
+        img_blur,
         cv2.HOUGH_GRADIENT,
-        dp=dp,
-        minDist=min_dist,
-        param1=param1,
-        param2=param2,
-        minRadius=min_radius,
-        maxRadius=max_radius
+        dp=1,
+        minDist=90,
+        param1=40,
+        param2=30,
+        minRadius=17,
+        maxRadius=60
     )
 
-    if circles is None:
-        return None
+    # If at least one circle is detected
+    if circles is not None:
+        # Round values and convert to integers
+        circles = np.uint16(np.around(circles))
 
-    circles = np.uint16(np.around(circles))[0]  # shape: (num_circles, 3)
+        # Loop over detected circles
+        for c in circles[0]:
+            # c contains (x_center, y_center, radius)
+            # OpenCV stores circles inside an extra array level,
+            # so we access circles[0]
 
-    # If multiple circles are detected, select one.
-    # Simple rule: choose the circle with the largest radius.
-    # (Alternative: choose the darkest circle center, etc.)
-    x, y, r = max(circles, key=lambda c: c[2])
-    return int(x), int(y), int(r)
+            # Draw the detected pupil circle in green
+            cv2.circle(img, (c[0], c[1]), c[2], (0, 255, 0), 2)
 
+            # Draw the center of the circle in red
+            cv2.circle(img, (c[0], c[1]), 2, (0, 0, 255), 3)
 
-def draw_detection(frame_bgr, det):
-    """Draws the pupil circle (green) and center (red)."""
-    out = frame_bgr.copy()
-    if det is None:
-        return out
+            # Save the detected radius value
+            radius = int(c[2])
+            circles_radius_data_array.append(radius)
 
-    x, y, r = det
-    cv2.circle(out, (x, y), r, (0, 255, 0), 2)  # circle outline
-    cv2.circle(out, (x, y), 2, (0, 0, 255), 3)  # center point
-    return out
+    else:
+        # If no pupil is detected in this frame
+        print(f"No circle detected in frame {frame_num_tag[i]}")
 
-
-def process_video(input_path, output_path, step=1, max_frames=0, fps_out=None):
-    """
-    Process input video and save output video with pupil detection overlay.
-
-    Parameters:
-    - step: analyze every 'step' frames (1 = every frame, 2 = every other frame, etc.)
-    - max_frames: if > 0, stops after processing that many frames
-    - fps_out: output fps (if None, uses input fps)
-    """
-
-    cap = cv2.VideoCapture(input_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"Could not open video: {input_path}")
-
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps_in = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    fps = fps_out if fps_out is not None else fps_in
-
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-
-    processed = 0
-    analyzed = 0
-
-    # We loop frame by frame, but only analyze frames that match the step condition.
-    frame_idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        if frame_idx % step == 0:
-            det = detect_pupil_hough(frame)
-            frame_vis = draw_detection(frame, det)
-            analyzed += 1
-        else:
-            frame_vis = frame
-
-        writer.write(frame_vis)
-        processed += 1
-        frame_idx += 1
-
-        if max_frames > 0 and processed >= max_frames:
-            break
-
-    cap.release()
-    writer.release()
-
-    print(f"Input frames: {total_frames}")
-    print(f"Frames written: {processed}")
-    print(f"Frames analyzed (step={step}): {analyzed}")
-    print(f"Output saved to: {output_path}")
+    # ===============================
+    # Save frame with pupil detection
+    # ===============================
+    cv2.imwrite(f"frame_pupil_detected_{frame_num_tag[i]}.png", img)
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True, help="Path to input video (e.g., data/Chris_pupila2.mp4)")
-    parser.add_argument("--output", default="results/pupil_detected.mp4", help="Output video path")
-    parser.add_argument("--step", type=int, default=1, help="Analyze every N frames (default=1)")
-    parser.add_argument("--max_frames", type=int, default=0, help="Process only first N frames (0 = all)")
-    parser.add_argument("--fps", type=float, default=0.0, help="Output fps (0 = use input fps)")
-    args = parser.parse_args()
 
-    fps_out = None if args.fps <= 0 else args.fps
+# ===============================
+# Final summary of detection
+# ===============================
 
-    process_video(
-        input_path=args.input,
-        output_path=args.output,
-        step=max(1, args.step),
-        max_frames=max(0, args.max_frames),
-        fps_out=fps_out
-    )
+print(
+    f"\nThe number of frames with detected pupil is "
+    f"{len(circles_radius_data_array)} out of {len(frames_to_analize)} total frames."
+)
+print("Detected radii (in pixels):")
+print(circles_radius_data_array)
+print("Program finished successfully")
 
 
-if __name__ == "__main__":
-    main()
+
+# ==========================================================
+# Create a video using the processed frames
+# ==========================================================
+
+fps = 15
+output_video = "Prueba_Chris_pupil_detected.mp4"
+
+# Read the first processed frame to get video size
+first_frame = cv2.imread(f"frame_pupil_detected_{frame_num_tag[0]}.png")
+height = first_frame.shape[0]
+width = first_frame.shape[1]
+
+# Create the VideoWriter object
+codec = cv2.VideoWriter_fourcc(*"mp4v")
+video = cv2.VideoWriter(output_video, codec, fps, (width, height))
+
+# Write each processed image as a frame in the output video
+# This produces a low-quality video due to the mp4v codec
+for n in frame_num_tag:
+    imgage = cv2.imread(f"frame_pupil_detected_{n}.png")
+    video.write(imgage)
+
+video.release()
+
+print("Video:", output_video, "created successfully")
+
+
+
+# ==========================================================
+# Convert the video to high-quality H.264 using ffmpeg
+# ==========================================================
+
+output_h264 = "Chris_pupil_detected_h264_q12.mp4"
+
+# Use ffmpeg to re-encode the video with better quality
+subprocess.run([
+    "ffmpeg", "-y",
+    "-i", output_video,
+    "-c:v", "libx264",
+    "-crf", "12",
+    "-preset", "veryfast",
+    "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart",
+    output_h264
+])
+
+print("H.264 video (q12) created:", output_h264)
+
