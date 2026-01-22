@@ -18,6 +18,10 @@ Pipeline:
   <img src="results/pupil_comparison.gif" width="520">
 </p>
 
+<p align="center">
+  <img src="results/Figure_4.jpg" width="520">
+</p>
+
 ## 🛠️ Tech
 - Python
 - OpenCV
