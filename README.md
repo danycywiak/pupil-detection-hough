@@ -18,7 +18,11 @@ Pipeline:
   <img src="results/pupil_comparison.gif" width="520">
 </p>
 
-![Figure 2](results/Figure_4.jpg)
+
+<p align="center">
+  <img src="results/Figure_4.jpeg" width="520">
+</p>
+
 
 
 ## 🛠️ Tech
