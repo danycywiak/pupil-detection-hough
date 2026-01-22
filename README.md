@@ -18,9 +18,8 @@ Pipeline:
   <img src="results/pupil_comparison.gif" width="520">
 </p>
 
-<p align="center">
-  <img src="results/Figure_4.jpg" width="520">
-</p>
+![Figure 2](results/Figure_4.jpg)
+
 
 ## 🛠️ Tech
 - Python
